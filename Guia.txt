@@ -1,0 +1,164 @@
+BIBLIOTECAS NECESARIAS
+	sys/socket.h
+	netinet/in.h
+	arpa/inet.h
+	sys/types.h
+
+struct sockaddr: Esta estructura mantiene informacion de direcciones de socket para diversos tipos de sockets.
+
+		struct sockaddr{
+			unsigned short  sa_family;  // Familia de direcciones, AF_XXX
+			char			     sa_data[14]; // 14 bytes de la direccion del protocolo
+		}
+
+sa_family: Utilizaremos AF_INET para todo lo que hagamos.
+sa_data: Contiene una direccion y numero de puerto de destino para el socket.
+
+COMO NO RESULTA NADA COMODO TRABAJAR CON ESTA ESTRUCTURA SE CREO LA ESTRUCTURA sockaddr_in (internet)
+
+		struct sockaddr_in{
+			short int				sin_family;	// Familia de direcciones, AF_XXX
+			unsigned short int	sin_port; 		// Numero de puerto
+			struct in_addr		sin_addr;		// Direccion de internet
+			unsigned char		sin_zero[8];     // Relleno para preservar el tamano original del struct SOCKADDR
+		};
+
+sin_zero se incluye para que la estructura tenga el mismo tamano que una estructura sockaddr, debe rellenarse todo a ceros usando
+la funcion MEMSET().
+
+#########################################################################################
+
+CONVERSION DE DATOS 
+- HTONS() = 'Host TO Network Short' (SHORT de maquina a SHORT de la red)
+- HTONL() = 'Host TO Network Long' (Long de maquina a LONG de la red)
+- NTOHS() = 'Network TO Host Short' (SHORT de la red a SHORT de maquina)
+
+#########################################################################################
+
+DIRECICIONES IP Y COMO TRATARLAS
+inet_addr() = Convierte una direccion IP dada en la notacion de cifras y puntos en un UNSIGNED LONG lo cual puede ser asignada a
+			       nuestro in_addr.s_addr, Y devuelve la direccion segun la ORDENACION DE BYTES DE LA RED, por lo cual no necesitamos
+			       utilizar las funcion de CONVERSION DE DATOS (HTONS, HTONL, NTOHS).
+
+RETORNA -1 en caso de error, este valor de retorno corresponde a 255.255.255.255, la direccion de difusion.
+
+Ejemplo:
+			struct sockaddr_in ina;
+			ina.sin_addr.s_addr = inet_addr("192.168.0.1");
+
+EXISTE UNA INTERFAZ MAS LIMPIA PARA UTILIZAR EN LUGAR DE INET_ADDR().
+
+inet_aton() 'ASCII TO NETWORK'
+int inet_aton(const char *cp, struct in_addr *inp);
+
+int inet_aton(const char *cp, struct in_addr *inp);
+
+#########################################################################################
+
+SOCKET () -- DESCRIPTOR DE FICHERO
+int socket(int domain, int type, int protocol);
+
+Domain = Tiene que ser AF_INET, igual que en la estructura sockaddr_in.
+Type = Le dice al nucleo que tipo de socket es (SOCK_STREAM o SOCK_DGRAM).
+Protocol = Podemos darle como valor 0 para que el socket elija el protocolo correcto en funcion del tipo Type
+
+Retorno = Devuelve -1 en caso de error o en caso correcto devuelve un descriptor de socket que podemos utilizar en posteriores
+			llamadas al sistema.
+
+#########################################################################################
+
+BIND () -- EN QUE PUERTO ESTOY?
+Asociaremos nuestro socket con algun puerto de nuestra maquina local.
+
+int bind(int sockfd, struct sockaddr *my_addr, int addrlen);
+
+SOCKFD = Descriptor de fichero de socket que devuelve la funcion socket().
+MY_ADDR = Es un puntero a una estructura sockaddr que contiene info acerca de la direccion a saber, PUERTO e IP.
+ADDRLEN = Se puede asignar sizeof(struct sockaddr).
+
+int sockfd;
+ struct sockaddr_in my_addr;
+ sockfd = socket(AF_INET, SOCK_STREAM, 0); // ¡Comprueba que no hay errores!
+ my_addr.sin_family = AF_INET; // Ordenación de máquina
+ my_addr.sin_port = htons(MYPORT); // short, Ordenación de la red
+ my_addr.sin_addr.s_addr = inet_addr("10.12.110.57");
+ memset(&(my_addr.sin_zero), '\0', %); // Poner a cero el resto de la estructura
+ // no olvides comprobar los errores de bind():
+ bind(sockfd, (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
+
+#########################################################################################
+
+ CONNECT() -- EH, TU!!
+Conectar a una maquina remota.
+
+int connect(int sockfd, struct sockaddr *serv_addr, int addrlen);
+
+SOCKFD = Descriptor de fichero de socket que nos devuelve la funcion socket().
+SERV_ADDR = Puntero a una estructura sockaddr que contiene PUERTO e IP.
+ADDRLEN = Le podemos asignar sizeof(struct sockaddr)
+
+Retorno = -1 en caso de error.
+
+Si utilizamos esta funcion no es necesaria la implementacion de la funcion bind ()
+
+##### ####################################################################################
+
+LISTEN() -- POR FAVOR, QUE ALGUIEN ME LLAME :C
+Estaremos a la espera de que lleguen conexiones entrantes.
+
+int listen(int sockfd, int backlog); 
+
+SOCKFD = Descriptor de socket devuelto por la funcion socket().
+BACKLOG = Es el numero de conexiones permitidas en la cola de entrada, estas conexiones van a quedar en COLA hasta que las aceptemos
+			   utilizando el metodo accept(), y este es el limite de conexiones que puede haber en la cola.
+
+Retorno = -1 en caso de error.
+
+Para utilizar este metodo es obligatorio tener implementada la funcion bind anteriormente ya que de lo contrario el nucleo nos tendra 
+esperando en un puerto random.
+
+##### ####################################################################################
+
+ACCEPT() -- GRACIAS POR COMUNICARTE CON EL PUERTO XXXX :)	 
+En este punto alguien va a estar intentando conectarse (connect()) a nuestra maquina en un puerto en el que yo estoy escuchando
+(listen()), Su conexion pasara a cola (si el BACKLOG lo permite) esperando a ser aceptada (accept()), cuando utilizamos el metodo 
+accept() lo que estamos diciendo es que queremos que la conexion en cola sea aceptada... La llamada a sistema (syscall) nos devolvera
+un nuevo descriptor de fichero de socket para que lo usemos en esta nueva conexion.
+
+int accept(int sockfd, void *addr, int *addrlen); 
+
+SOCKFD = Descriptor de fichero que esta a la escucha.
+ADDR = Normalmente es un puntero a una estructura sockaddr_in, aqui se guardara la informacion de la conexion entrante, con esto
+		  podemos averiguar de donde nos estan llamando y sobre que puerto.
+ADDRLEN = Puntero a una variable local de tipo INT a la que se le deberia asignar el valor de sizeof(struct sockaddr_in).
+
+Retorno = -1 en caso de error.
+
+ int sockfd, new_fd; // se escucha sobre sock_fd, Nuevas conexiones sobre new_fd
+ struct sockaddr_in my_addr; // Información sobre mi dirección
+ struct sockaddr_in their_addr; // Información sobre la dirección remota
+ int sin_size;
+ sockfd = socket(AF_INET, SOCK_STREAM, 0); // ¡Comprobar errores!
+ my_addr.sin_family = AF_INET; // Ordenación de máquina
+ my_addr.sin_port = htons(MYPORT); // short, Ordenación de la red
+ my_addr.sin_addr.s_addr = INADDR_ANY; // Rellenar con mi dirección IP
+ memset(&(my_addr.sin_zero), '\0', 8); // Poner a cero el resto de la estructura
+ // no olvides comprobar errores para estas llamadas:
+ bind(sockfd, (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
+ listen(sockfd, BACKLOG);
+ sin_size = sizeof(struct sockaddr_in);
+ new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+
+En caso de no esperar recibir mas conexiones es recomendable cerrar el Fichero que se encuentra a la espera utilizando el metodo
+CLOSE() para evitar que lleguen nuevas conexiones al mismo puerto.
+
+##### ####################################################################################
+
+SS -LT
+NETSTAT -PLNET 
+
+							RETORMAR PAGINA 20 PARA VER EL COMPORTAMIENTO POR PARTE DEL CLIENTE
+
+
+
+
